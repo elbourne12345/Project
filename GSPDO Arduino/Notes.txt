@@ -1,0 +1,67 @@
+GPSDO Implementaton on Arduino Uno
+
+Links:
+
+https://github.com/AndrewBCN/STM32-GPSDO/tree/main/docs
+http://knology.net/~gmarcus/Si5351.html
+https://github.com/erikkaashoek/Arduino_SI5351_GPSDO
+https://www.iqdfrequencyproducts.com/products/details/cfpv-45-7-31.pdf
+https://www.manualslib.com/manual/1370352/Quectel-L10.html
+http://ww1.microchip.com/downloads/en/devicedoc/22039d.pdf
+https://www.ti.com/lit/ds/scls122d/scls122d.pdf?HQS=TI-null-null-EDS-df-pf-null-eu
+https://www.farnell.com/datasheets/1681416.pdf
+https://content.arduino.cc/assets/Pinout-UNOrev3_latest.pdf
+https://content.arduino.cc/assets/Pinout-Mega2560rev3_latest.pdf
+
+
+
+Reviewed documentaton:
+ - Components
+ - Referenced examples
+ - Other implementation on GitHub
+
+Check builds with two reference projects to determine breakage, assess complexity.
+ - Load libraries
+ - Fix and comment during builds, commenting accordingly
+ - Determine if we an get a clean compile, and how much (extraction, replacement, resolution is required)
+ - Too much breakage with full implementations
+
+Approach is clear...  Find/develop I/O and I/O abstraction for platform and hardware.  Introduce higher level 
+algorithmic code from reference code.
+
+
+Input frequency from counter is divided by 8 - hmmmm...  Will this provide the necessary resolution for correction (**DO ERROR analysis**)
+
+
+
+2021-11-07
+onnecte
+- Merged code from several code bases to create a version that uses the MCP7425 and takes scaled VXCO output on either 
+Pin8 to measure frequency, or Pin5 to count.  GPS 1PPS should be connected to Pin2
+
+- Created I/O code to test Frequency Count/Measure.
+
+
+Compile and run the sketches located in FreqCountTest or FreqMeasureTest.  
+
+If they don't compile ("Header file not found" errors), 
+add each of the zip libraries located 
+using the procedure detailed here: https://www.arduino.cc/en/Guide/Libraries.
+
+
+2021-11-08
+
+Ran I/O Tests
+
+- Debugged Circuit - 54HC193 was broke
+- Verified input from frequency counter after resolving brokend device
+- Verified I2C configuration to MCP4725 DAC - works at address 0x60
+- Tested GPSDO code
+     - Tested and fixed GPS 1PPS interrupt
+     - Tested and fixed serial commanding
+
+Works kind of
+
+- Clean up, take break first. Also need to work on AD9850 code on arrival.
+
+- 
