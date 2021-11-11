@@ -14,7 +14,6 @@ https://content.arduino.cc/assets/Pinout-UNOrev3_latest.pdf
 https://content.arduino.cc/assets/Pinout-Mega2560rev3_latest.pdf
 
 
-
 Reviewed documentaton:
  - Components
  - Referenced examples
@@ -33,7 +32,6 @@ algorithmic code from reference code.
 Input frequency from counter is divided by 8 - hmmmm...  Will this provide the necessary resolution for correction (**DO ERROR analysis**)
 
 
-
 2021-11-07
 onnecte
 - Merged code from several code bases to create a version that uses the MCP7425 and takes scaled VXCO output on either 
@@ -41,11 +39,16 @@ Pin8 to measure frequency, or Pin5 to count.  GPS 1PPS should be connected to Pi
 
 - Created I/O code to test Frequency Count/Measure.
 
+To run tests...
+
+Please extract the zip file to a location of your choice. 
+
 
 Compile and run the sketches located in FreqCountTest or FreqMeasureTest.  
 
 If they don't compile ("Header file not found" errors), 
 add each of the zip libraries located 
+here: .....\UpWork - GPSDO_Arduino\Code\Libs, 
 using the procedure detailed here: https://www.arduino.cc/en/Guide/Libraries.
 
 
@@ -60,8 +63,56 @@ Ran I/O Tests
      - Tested and fixed GPS 1PPS interrupt
      - Tested and fixed serial commanding
 
-Works kind of
+Works!  @ 10pm
 
-- Clean up, take break first. Also need to work on AD9850 code on arrival.
+- Clean up
 
-- 
+2021-11-09
+
+- Work on algorith and control
+Transfer Function
+
+VDD = 3.3v
+
+DAC  
+111111111111 (FFFh) VDD - 1 LSB
+111111111110 (FFEh) VDD - 2 LSB
+000000000010 (002h) 2 LSB
+000000000001 (001h) 1 LSB
+000000000000 (000h) 0
+
+Vs = 3.3v
+VCXO
+Center Frequncy : 40Mhz or 20Mhz if DAC output is biased (+/- 1.65)
+Frequency Range : 1.5 - 80Mhz
+vctl = +/- 1.65V
+about 41.25nV per Hz (ignoring linearity issues)
+
+
+Without providing offset of DAC output, the VXCO would  have to be pulled above 40Mhz (to Fcn), with vtcl being adjusted above/below Fcn set voltage.
+To pull VXCO to 48Mhz vctl would be set at approximately 0.33v, and driven about that number, accordiing to frequency error corrections.
+
+With offset circuit (2 OpAmps)
+
+Arduino ->  DAC  ->   OpAmps(vctl) -> VCXO
+0xFFF      3.300v     1.650v          80Mhz
+0x7FF      1.650v     0.000v          40Mhz
+0x3FF      0.825v    -0.825v          20Mhz *
+0x1FF      0.413v    -1.237v          10Mhz
+0x000      0.000v    -1.650v          1.5Mhz
+
+- Configured variables and constants work at desired levels
+- set VCXO sample duration (pin 5) to 40 sec
+- verified alorithm
+- inserted additional DEBUG 
+- cleaneup up code
+
+
+             
+
+
+
+
+
+
+
