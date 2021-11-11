@@ -1,3 +1,7 @@
+
+// NR - This code used a SI5351, but had hooks to the MCP4725.  Lots of stuff here LCD, GPS NMEA interface - most not used
+//
+//   https://github.com/erikkaashoek/Arduino_SI5351_GPSDO 
 /*Permission is granted to use, copy, modify, and distribute this software and documentation for non-commercial purposes. 
 (F2DC 17 April 2017)
 
@@ -8,8 +12,13 @@ Thanks to all of them.
 ==> Version V.5.2 (June 2020) : The LCD shows now error E as "Rel.err=-70e-8"
 
 SW modified by Erik Kaashoek to allow for longer measurement times enabling more accuracy.
+*/
 
- */
+// https://github.com/AndrewBCN/STM32-GPSDO
+// 	NR - This code also uses the MCP4725, but is written for STM32 - Algorithm segments extracted
+//  STM32 GPSDO v0.04h by André Balsa, June 2021
+//  GPLV3 license
+
 
 // include the library code:
 #include <string.h>
@@ -35,10 +44,11 @@ MCP4725 dac(0x60);
 #ifdef OLED
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#define SCREEN_WIDTH 128 // OLED display width, in pixels
-#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+#define SCREEN_WIDTH 128 		// OLED display width, in pixels
+#define SCREEN_HEIGHT 64 		// OLED display height, in pixels
+
 // Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
-#define OLED_RESET     4 // Reset pin # (or -1 if sharing Arduino reset pin)
+#define OLED_RESET     4 		// Reset pin # (or -1 if sharing Arduino reset pin)
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #endif
 
@@ -56,13 +66,14 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #endif
 
 // Set up MCU pins
-#define ppsPin                   2 // from GPS 
-#define ALARM_LED                3 // LED Alarm XtalFreq
+#define ppsPin                   2 				// from GPS 1PPS 
+#define ALARM_LED                LED_BUILTIN	// Only one user LED 
+#define INT_LED					 LED_BUILTIN 
 #define LOCK_LED                 4
 #define OPEN_LOOP                8
 #define COUNT_PIN                5
-#define DAC_HIGH                6
-#define DAC_LOW                 7
+#define DAC_HIGH                 6
+#define DAC_LOW                  7
 
 #ifdef lcd
 #define RS                       7 // LCD RS
@@ -77,79 +88,85 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define SEARCH_OPTIMUM      false       // Set to true if a stable TCXO is used for the SI5351, should be false when not using the phase detector
 
 #define MIN_DURATION        5
-#define PLL_START_DURATION  40       // Start using phase when duration exceeds this.
+#define PLL_START_DURATION  40       	// Start using phase when duration exceeds this.
 int phase_start_duration = PLL_START_DURATION;
 #define  INITIAL_PLL 900000000000LL
-int64_t PLLFReq_x1000 = INITIAL_PLL;  // In 1/1000 Hz, will be update to actual frequency
-//#define INITIAL_XTAL 26000000000LL      // In 1/1000 Hz
+int64_t PLLFReq_x1000 = INITIAL_PLL;  	// In 1/1000 Hz, will be update to actual frequency
+//#define INITIAL_XTAL 26000000000LL  	// In 1/1000 Hz
 #define INITIAL_XTAL 10000000000LL      // In 1/1000 Hz
 int64_t XtalFreq_x1000 = INITIAL_XTAL;   
 
 #define A_START (600000000000LL / INITIAL_XTAL)
 #define A_STOP  (900000000000LL / INITIAL_XTAL)
 
-#define CAL_FREQ  2500000UL      // In Hz, maximum is 4.5MHz
-#define CALFACT_START 0       // Can be set to pre-load the correction to speed up locking.
-#define MIN_PULSES  0       // Heuristic number of pulses that are missed due to the code structure.
+#define CAL_FREQ  2500000UL      // In Hz, maximum is 4.5MHz - THIS IS THE SET FREQUENCY - 20mHZ / 8 FROM DIVIDER
+#define CALFACT_START 0       	 // Can be set to pre-load the correction to speed up locking.
+#define MIN_PULSES  0       	 // Heuristic number of pulses that are missed due to the code structure.
 
-#define MAX_TIME  (int)(10000000000LL / CAL_FREQ )    // Time to count 10 billion counts    with 2.5MHz this is 4000 seconds
-//#define MAX_TIME  (int)(1000000000LL / CAL_FREQ )    // Time to count 1 billion counts, with 2.5MHz this is  400 seconds
-//#define MAX_TIME  (int)(100000000LL / CAL_FREQ )    // Time to count 100 million counts, with 2.5MHz this is  40 seconds
-//#define MAX_TIME  (int)(10000000LL / CAL_FREQ )    // Time to count 10 million billion counts, with 2.5MHz this is  4 seconds
+//#define MAX_TIME  (int)(10000000000LL / CAL_FREQ )    // Time to count 10 billion counts    with 2.5MHz this is 4000 seconds
+//#define MAX_TIME  (int)(1000000000LL 	/ CAL_FREQ )   	// Time to count 1 billion counts, with 2.5MHz this is  400 seconds
+#define MAX_TIME  (int)(100000000LL 	/ CAL_FREQ )    // Time to count 100 million counts, with 2.5MHz this is  40 seconds
+//#define MAX_TIME  (int)(10000000LL 	/ CAL_FREQ )   	// Time to count 10 million billion counts, with 2.5MHz this is  4 seconds
 
-#define SMALL_STEP    10      // 10e-10
-//#define SMALL_STEP    100      // 10e-9
-//#define SMALL_STEP    1000      // 10e-8
+#define SMALL_STEP    10      		// 10e-10
+//#define SMALL_STEP    100      	// 10e-9
+//#define SMALL_STEP    1000      	// 10e-8
 
 #define TEST  false
-#define DEBUG 0                  // Set to 1 for verbose messages       
+//#define DEBUG 1                  // Set to 1 for verbose messages       
+#undef DEBUG                       // No debug messages
 
-const uint16_t default_DAC_output = 2400; // 12-bit value, varies from OCXO to OCXO, and with aging and temperature
-                                          // Some values I have been using, determined empirically:
-                                          // 2603 for an ISOTEMP 143-141
-                                          // 2549 for a CTI OSC5A2B02
-                                          // 2400 for an NDK ENE3311B
-                                          // 2180 for a second NDK ENE3311B
-uint16_t adjusted_DAC_output;             // we adjust this value to "close the loop" of the DFLL when using the DAC
+
+// Stuff from AndrewBCN / STM32-GPSDO
+// Might be needed, but probably not...
+const uint16_t default_DAC_output = 0x3FF;	// 12-bit value, varies from OCXO to OCXO, and with aging and temperature
+											// Some values I have been using, determined empirically:
+											// 2603 for an ISOTEMP 143-141
+											// 2549 for a CTI OSC5A2B02
+											// 2400 for an NDK ENE3311B
+											// 2180 for a second NDK ENE3311B
+uint16_t adjusted_DAC_output;             	// we adjust this value to "close the loop" of the DFLL when using the DAC
 
 volatile uint32_t cbiten_newest=0; // index to oldest, newest data
 volatile uint32_t cbihun_newest=0;
 volatile uint32_t cbitho_newest=0;
 volatile uint32_t cbitth_newest=0;
 
-volatile bool cbTen_full=false, cbHun_full=false, cbTho_full=false, cbTth_full=false;  // flag when buffer full
+volatile bool cbTen_full=false, cbHun_full=false, 
+					cbTho_full=false, cbTth_full=false;  	// flag when buffer full
 volatile double avgften=0, avgfhun=0, avgftho=0, avgftth=0; // average frequency calculated once the buffer is full
-volatile bool flush_ring_buffers_flag = true;  // indicates ring buffers should be flushed
-volatile bool force_calibration_flag = true;   // indicates GPSDO should start calibration sequence
-volatile bool ocxo_needs_warming = true;       // indicates OCXO needs to warm up a few minutes after power on
-const uint16_t ocxo_warmup_time = 15;          // ocxo warmup time in seconds; 15s for testing, 300s or 600s normal use
+volatile bool flush_ring_buffers_flag = true;  				// indicates ring buffers should be flushed
+volatile bool force_calibration_flag = true;   				// indicates GPSDO should start calibration sequence
+volatile bool ocxo_needs_warming = true;       				// indicates OCXO needs to warm up a few minutes after power on
+const uint16_t ocxo_warmup_time = 15;          				// ocxo warmup time in seconds; 15s for testing, 300s or 600s normal use
 
-volatile bool tunnel_mode_flag = false;        // the GPSDO relays the information directly to and from the GPS module to the USB serial
-volatile bool must_adjust_DAC = false;     	   // true when there is enough data to adjust Vctl
+volatile bool tunnel_mode_flag = false;        				// the GPSDO relays the information directly to and from the GPS module to the USB serial
+volatile bool must_adjust_DAC = false;     	   				// true when there is enough data to adjust Vctl
 
-volatile bool FirstLoopPass = false;		   // true when main loop is entered	
+volatile bool FirstLoopPass = false;		   				// true when main loop is entered	
 
 #ifdef LCD
 // initialize the library with the numbers of the interface pins
 LiquidCrystal lcd(RS, E, DB4, DB5, DB6, DB7);
 #endif
+
 // Variables 
 byte res,Epos;
 byte CptInit=1;
 char StartCommand2[7] = "$GPRMC",buffer[300] = "";
 int IndiceCount=0,StartCount=0,counter=0,indices[13];
-int validGPSflag = 1;     // Set to 1 to avoid waiting for a valid GPS string in case no connection between GPS and Arduino
+int validGPSflag = 1;     			// Set to 1 to avoid waiting for a valid GPS string in case no connection between GPS and Arduino
 int Chlength;
 int byteGPS=-1,second=0,minute=0,hour=0;
-int64_t mult=0;         // Count of overflows of 16 bit counter
+int64_t mult=0;         			// Count of overflows of 16 bit counter
 int alarm = 0;
-unsigned int pulse_count=0;        // counts the seconds in a measurement cycle 
-int duration = 2;             // Initial measurement duration
-int target_duration = 4;         // Value of duration for next measurement cycle
+unsigned int pulse_count=0;        	// counts the seconds in a measurement cycle 
+int duration = 2;             		// Initial measurement duration
+int target_duration = 4;         	// Value of duration for next measurement cycle
 int count_available = 0;            // Flag set to 1 after pulse counting finished
 int speed_available = 0;
 int phase_available = 0;
-int stable_count = 0;         // Count of consecutive measurements without correction needed.
+int stable_count = 0;         		// Count of consecutive measurements without correction needed.
 
 
 long dac_out = 0;
@@ -158,8 +175,8 @@ long  dac_manual = 0;
 long dac_base = 30257;
 float dac_mult = 0.025;
 #else
-#define DAC_RANGE 4096
-long dac_base = DAC_RANGE/2 - 1;
+#define DAC_RANGE 4096				// This range is used for MCP4725 DAC
+long dac_base = DAC_RANGE/2 - 1;    // This base is used for MCP4725
 float dac_mult = 1;
 #endif
 
@@ -169,8 +186,8 @@ float dac_mult = 1;
 
 int32_t calfact_x10 =0;                 // Current correction factor in 1/100 Hz
 int32_t prev_calfact_x10 = 0;
-int64_t target_count,             // Target count of pulses
-measured_count;                 // Actual count of pulses
+int64_t target_count,             		// Target count of pulses
+measured_count;                 		// Actual count of pulses
 
 volatile int phase = 0;
 float speed = 0;
@@ -185,8 +202,8 @@ int phase_count = 0;
 int phase_count_max = PLL_START_DURATION;
 int p_delta_sum = 0;
 
-float high_gain =3.0e-7 / (float)256; // Minimum correction step of high DAC
-float gain = (float)3.0/(float)200000000.0 / (float)4096;  // Minimum correction step of low DAC
+float high_gain =3.0e-7 / (float)256; 						// Minimum correction step of high DAC
+float gain = (float)3.0/(float)200000000.0 / (float)4096;  	// Minimum correction step of low DAC
 float corr = 0.0;
 float min_corr = 0.0;
 
@@ -197,6 +214,7 @@ int alarm_led = true;
 int lock_led = false;
 int blink_alarm = false;
 int blink_lock = false;
+int int_led = true;
 
 
 // Define SI5351A register addresses
@@ -226,14 +244,13 @@ int64_t prev_count = 0;
 
 int64_t delta_count = 0;
 
-#define DEBUG 1
 
 // Timer 1 overflow interrupt vector.
 ISR(TIMER1_OVF_vect) 
 {
-  mult++;        //Increment overflow multiplier
+  mult++;        		//Increment overflow multiplier
   high_count++;
-  TIFR1 = (1<<TOV1);  //Clear overflow flag by shifting left 
+  TIFR1 = (1<<TOV1);  	//Clear overflow flag by shifting left 
 }
 
 
@@ -247,6 +264,12 @@ void PPSinterrupt()
   Serial.println(F("DBG - 1PPS Interrupt"));
 #endif  
 
+  // Blink the LED .5Hz
+  int_led = !int_led;
+  digitalWrite(INT_LED, int_led);
+
+  // Maintain count of VCXO pulses
+  // 
   low_count = TCNT1;
   delta_count = (int64_t)low_count  - (int64_t)prev_low_count + (high_count - prev_high_count) * 0x10000LL;
   prev_high_count = high_count;
@@ -261,14 +284,17 @@ void PPSinterrupt()
       measured_count = 0;  							// Add pulses
     pulse_count++;              					// Increment the seconds counter
     measured_count += delta_count;  				// Add pulses
-    if (pulse_count >= target_duration) 			//Stop the counter : the target_duration gate time is elapsed
+    if (pulse_count >= target_duration) 			// Stop the counter : the target_duration gate time is elapsed
     {     
       duration = target_duration;
-      target_count=((int64_t)CAL_FREQ)*duration;    //Calculate the target count     
+      target_count=((int64_t)CAL_FREQ)*duration;    // Calculate the target count     
       count_available = 1;
     }
   } 
-  if (USE_PHASE_DETECTOR && !phase_available) {
+  
+  // Phase detector is turned off
+/* 
+ if (USE_PHASE_DETECTOR && !phase_available) {
     phase = analogRead(A0);
     p_delta = phase - prev_phase;
     prev_phase = phase;
@@ -305,7 +331,12 @@ void PPSinterrupt()
       Serial.println(p_delta);
     }
   }
-  if(validGPSflag == 1) //Start the UTC timekeeping process
+ */
+ 
+
+ // GPS NMEA Communications not present
+ /*
+ if(validGPSflag == 1) //Start the UTC timekeeping process
   {
     second++;  
     if (second == 60)   //Set time using GPS NMEA data 
@@ -343,6 +374,7 @@ void PPSinterrupt()
     displ_print (second);
     //   displ_print (F("Z"));  // UTC Time Indicator
   }
+  */
   if (blink_alarm) {
     alarm_led = !alarm_led;
     digitalWrite(ALARM_LED, alarm_led);
@@ -363,20 +395,20 @@ String ToString(int64_t x)    // Very clumsy conversion of 64 bit numbers
     x = -x;
     str = "-";
   }
-  if (x == 0)  // if x = 0 and this is not testet, then function return a empty string.
+  if (x == 0)  			// if x = 0 and this is not testet, then function return a empty string.
   {
     str = "0";
-    return str;  // or return "0";
+    return str;  		// or return "0";
   }    
   while (y > 0)
   {                
     res = (int)(x / y);
-    if (res > 0)  // Wait for res > 0, then start adding to string.
+    if (res > 0)  		// Wait for res > 0, then start adding to string.
       flag = true;
     if (flag == true)
       str = str + String(res);
-    x = x - (y * (int64_t)res);  // Subtract res times * y from x
-    y = y / 10;                   // Reducer y with 10    
+    x = x - (y * (int64_t)res);  	// Subtract res times * y from x
+    y = y / 10;                   	// Reducer y with 10    
   }
   return str;
 }  
@@ -428,7 +460,7 @@ void setup()
 #ifdef LCD
 
   lcd.begin(16,2); 
-  lcd.display();           // initialize LCD
+  lcd.display();           // initialize LCD if there is one
 #endif
 
 #ifdef OLED
@@ -437,15 +469,15 @@ void setup()
   }
   display.display();
   display.clearDisplay();
-  display.setTextSize(3);             // Normal 1:1 pixel scale
-  display.setTextColor(SSD1306_WHITE);        // Draw white text
+  display.setTextSize(3);             			// Normal 1:1 pixel scale
+  display.setTextColor(SSD1306_WHITE);        	// Draw white text
 
 #endif
   // GPS 1pps input
   pinMode(ppsPin, INPUT);
   analogReference(INTERNAL);
-  displ_setCursor(0,1);
-  displ_print(F(" F2DC V.5.2")); 	// display version number on the LCD
+  //displ_setCursor(0,1);
+  //displ_print(F(" F2DC V.5.2")); 	// display version number on the LCD
   delay(1000);
 
   // Set up IO switches
@@ -461,8 +493,8 @@ void setup()
 #endif  
 
   // Set Arduino D2 for external interrupt input on the rising edge of GPS 1PPS
-  attachInterrupt(digitalPinToInterrupt(2), PPSinterrupt, RISING);  
-  Serial.print("Attached to: ");  Serial.print(digitalPinToInterrupt(2)); Serial.println("");
+  attachInterrupt(digitalPinToInterrupt(ppsPin), PPSinterrupt, RISING);  
+  Serial.print("Attached to: ");  Serial.print(digitalPinToInterrupt(ppsPin)); Serial.println("");
 
 //NR - No display device
   //displ_setCursor(0,1);
@@ -490,19 +522,15 @@ void setup()
     Serial.print(F("e"));
     Serial.println(e);
 
-  Serial.println(F("Waiting for GPS"));
+  Serial.println(F("Waiting for GPS 1PPS"));
   
-#ifdef DEBUG
-  Serial.println(F("DBG - Waiting for Interrupt"));
-#endif  
 
   
-	TCCR1B = 0;    //Turn off Counter
-
-    TCNT1 = 0;       //Reset counter to zero
-    low_count = 0;
-    high_count = 0;
-    TCCR1B = 7;    //Clock on rising edge of pin 5
+	TCCR1B 		= 0;    //Turn off Counter
+    TCNT1 		= 0;    //Reset counter to zero
+    low_count 	= 0;
+    high_count 	= 0;
+    TCCR1B 		= 7;    //Clock on rising edge of pin 5
 
   // Turn OFF CLK2 
   //  SI5351.output_enable(SI5351_CLK2,0); 
@@ -530,6 +558,10 @@ char testKey()
   return(0);
 }
 
+
+// Set the DAC value - for the MCP4725 the upper 16 bits of the long
+// are truncate.  Works - but not recommended
+// Oh yeah...  Globals defined here are set elswhere...  Old school :(
 long old_dac = 0;
 long old_dac_high = 0;
 #define INITIAL_DAC_HIGH  115
@@ -649,32 +681,39 @@ void loop()
 #endif	
 
 
-// Decode the keyboard input
+// Decode the keyboard input (commands)
 
   switch(c) {
 #if 0
     case 'e':
     do_eeprom(testKey());
     break;
+	
 #endif
   case 'p':
     dump_phase = !dump_phase;
     break;
+	
   case 'd':
+	// Manually set DAC value to global (Haha)
     dac_manual = Serial.parseInt();
     Serial.print(F("dac_manual = "));
     Serial.println(dac_manual); 
     set_dac();
     return;
+	
   case 'h':
+	// Manually set high DAC value (not applicable to MCP4725)
     dac_high = Serial.parseInt();
     Serial.print(F("dac_high = "));
     Serial.println(dac_high); 
     set_dac();
     return;
+	
   case 'a':
     dac_manual = 0;
     break;
+	
   case '+':
     target_duration *= 2;
     phase_count_max *= 2;
@@ -685,38 +724,50 @@ void loop()
     pulse_count = 0;
     phase_count = 0;
     break;
+	
   case '-':
     target_duration /= 2;
     phase_count_max /= 2;
     pulse_count = 0;
     phase_count = 0;
     break;
+	
   case '>':
+	// Bump DAC setting up 100
     dac_manual += 100;
     break;
+	
   case '<':
+	// Bump DAC setting down 100
     dac_manual -= 100;
     break;
+
   case 'r':
     calfact_x10 = 0;
     break;  
+
   case 'f':
+	// Force the pulse count duration (sec)
     force_duration = Serial.parseInt();
     phase_count = 0;
     pulse_count = 0;
     break;
+	
   case 'u':
     phase_start_duration = Serial.parseInt();
     phase_count = 0;
     pulse_count = 0;
     break;
+	
   case 't':
     dac_mult = Serial.parseFloat();
     Serial.print(F("dac_mult = "));
     Serial.println(dac_mult); 
     break;
-  case 'c':  
- // high dac
+	
+  case 'c':
+  // Calibrate  
+  // high dac
     dac_manual = 2047;
     dac_high = 0;
     set_dac();
@@ -747,8 +798,7 @@ void loop()
     print_float( ((float)high_count - (float)low_count)/(float)target_count, true);
 
     
-
- // low dac 
+  // low dac  
     dac_high = INITIAL_DAC_HIGH;
     dac_manual = 1;
     set_dac();
@@ -765,7 +815,7 @@ void loop()
     set_dac();
     Serial.println(F("wait 5s"));
     delay(5000);
-///    target_duration = 80;
+ ///    target_duration = 80;
     pulse_count = 0;
     count_available = 0;
     phase_available = 0;
@@ -800,11 +850,11 @@ void loop()
     } else 
     // Phase
     if (fabs(p_delta_average) < 5.0) {
-      corr = -p_delta_average * 0.25e-9;      // Half speed to avoid overcompensations
+      corr = -p_delta_average * 0.25e-9;      	// Half speed to avoid overcompensations
       min_corr = 22e-9 / phase_count;
     }
     else {
-      corr = -p_delta_average * 0.5e-9;     // resolution of phase detector
+      corr = -p_delta_average * 0.5e-9;     	// resolution of phase detector
       min_corr = 22e-9 / phase_count;
     }
     if (fabs(corr) > 20.0 * fabs(min_corr)) {
@@ -824,7 +874,7 @@ void loop()
     
     if (fabs(p_delta_average) < 5.0) {
       blink_lock = false;
-      digitalWrite(LOCK_LED,HIGH);   // final lock
+      digitalWrite(LOCK_LED,HIGH);   			// final lock
     }
     else
       blink_lock = true;
@@ -887,11 +937,11 @@ void loop()
     if ((hour*60LL+minute)*60LL+second < 20LL) {
       calfact_x10=0; //freeze
       dac_high = INITIAL_DAC_HIGH;
-    } else if (fabs(corr) > 1.5*high_gain) {  // use high dac
+    } else if (fabs(corr) > 1.5*high_gain) {  		// use high dac
       dac_high -=  corr / high_gain;
       calfact_x10 = 0;
     } else   
-      calfact_x10=calfact_x10 - ( corr / gain ); // compute the new calfact
+      calfact_x10=calfact_x10 - ( corr / gain ); 	// compute the new calfact
 
     if (calfact_x10 > (float)MAX_CALFACT/dac_mult)
       calfact_x10 = (float)MAX_CALFACT/dac_mult;
@@ -902,10 +952,12 @@ void loop()
 
 #ifdef DAC
 
+	// If DAC is used
     set_dac();
 
 #else    
-
+	
+	// If no DAC
     target_freq = 10000000000;
     XtalFreq_x1000 = INITIAL_XTAL - (INITIAL_XTAL / 10000000LL ) * calfact_x10/ 10000LL;     // calfact is versus 10MHz in 1/1000 Hz
 
@@ -1288,6 +1340,10 @@ uint8_t SI5351_write(uint8_t addr, uint8_t data)
   Wire.endTransmission();
 }
 //------------------------------------------------------------------------------------------------------
+
+
+// Stuff from AndrewBCN / STM32-GPSDO
+// Might be needed, but probably not...
 
 void adjustVctlDAC()
 // This should reach a stable DAC output value / a stable 10000000.00 frequency
