@@ -1,0 +1,118 @@
+GPSDO Implementaton on Arduino Uno
+
+Links:
+
+https://github.com/AndrewBCN/STM32-GPSDO/tree/main/docs
+http://knology.net/~gmarcus/Si5351.html
+https://github.com/erikkaashoek/Arduino_SI5351_GPSDO
+https://www.iqdfrequencyproducts.com/products/details/cfpv-45-7-31.pdf
+https://www.manualslib.com/manual/1370352/Quectel-L10.html
+http://ww1.microchip.com/downloads/en/devicedoc/22039d.pdf
+https://www.ti.com/lit/ds/scls122d/scls122d.pdf?HQS=TI-null-null-EDS-df-pf-null-eu
+https://www.farnell.com/datasheets/1681416.pdf
+https://content.arduino.cc/assets/Pinout-UNOrev3_latest.pdf
+https://content.arduino.cc/assets/Pinout-Mega2560rev3_latest.pdf
+
+
+Reviewed documentaton:
+ - Components
+ - Referenced examples
+ - Other implementation on GitHub
+
+Check builds with two reference projects to determine breakage, assess complexity.
+ - Load libraries
+ - Fix and comment during builds, commenting accordingly
+ - Determine if we an get a clean compile, and how much (extraction, replacement, resolution is required)
+ - Too much breakage with full implementations
+
+Approach is clear...  Find/develop I/O and I/O abstraction for platform and hardware.  Introduce higher level 
+algorithmic code from reference code.
+
+
+Input frequency from counter is divided by 8 - hmmmm...  Will this provide the necessary resolution for correction (**DO ERROR analysis**)
+
+
+2021-11-07
+onnecte
+- Merged code from several code bases to create a version that uses the MCP7425 and takes scaled VXCO output on either 
+Pin8 to measure frequency, or Pin5 to count.  GPS 1PPS should be connected to Pin2
+
+- Created I/O code to test Frequency Count/Measure.
+
+To run tests...
+
+Please extract the zip file to a location of your choice. 
+
+
+Compile and run the sketches located in FreqCountTest or FreqMeasureTest.  
+
+If they don't compile ("Header file not found" errors), 
+
+
+using the procedure detailed here: https://www.arduino.cc/en/Guide/Libraries.
+
+
+2021-11-08
+
+Ran I/O Tests
+
+- Debugged Circuit - 54HC193 was broke
+- Verified input from frequency counter after resolving brokend device
+- Verified I2C configuration to MCP4725 DAC - works at address 0x60
+- Tested GPSDO code
+     - Tested and fixed GPS 1PPS interrupt
+     - Tested and fixed serial commanding
+
+Works!  @ 10pm
+
+- Clean up
+
+2021-11-09
+
+- Work on algorith and control
+Transfer Function
+
+VDD = 3.3v
+
+DAC  
+111111111111 (FFFh) VDD - 1 LSB
+111111111110 (FFEh) VDD - 2 LSB
+000000000010 (002h) 2 LSB
+000000000001 (001h) 1 LSB
+000000000000 (000h) 0
+
+Vs = 3.3v
+VCXO
+Center Frequncy : 40Mhz or 20Mhz if DAC output is biased (+/- 1.65)
+Frequency Range : 1.5 - 80Mhz
+vctl = +/- 1.65V
+about 41.25nV per Hz (ignoring linearity issues)
+
+
+Without providing offset of DAC output, the VXCO would  have to be pulled above 40Mhz (to Fcn), with vtcl being adjusted above/below Fcn set voltage.
+To pull VXCO to 48Mhz vctl would be set at approximately 0.33v, and driven about that number, accordiing to frequency error corrections.
+
+With offset circuit (2 OpAmps)
+
+Arduino ->  DAC  ->   OpAmps(vctl) -> VCXO
+0xFFF      3.300v     1.650v          80Mhz
+0x7FF      1.650v     0.000v          40Mhz
+0x3FF      0.825v    -0.825v          20Mhz *
+0x1FF      0.413v    -1.237v          10Mhz
+0x000      0.000v    -1.650v          1.5Mhz
+
+- Configured variables and constants work at desired levels
+- set VCXO sample duration (pin 5) to 40 sec
+- verified alorithm
+- inserted additional DEBUG 
+- cleaneup up code
+
+
+             
+
+
+
+
+
+
+
